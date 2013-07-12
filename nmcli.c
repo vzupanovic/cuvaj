@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <locale.h>
+#include <stdarg.h>
 
 #include <glib.h>
 #include <dbus/dbus-glib.h>
@@ -37,9 +38,12 @@
 #include <nm-remote-settings.h>
 #include <nm-connection.h>
 #include <nm-setting-wired.h>
+#include <nm-setting-gsm.h>
 #include <nm-setting-ip4-config.h>
 #include <NetworkManager.h>
 #include <nm-utils.h>
+#include <nm-setting-ppp.h>
+#include <nm-setting-serial.h>
 
 #include "nmcli.h"
 #include "utils.h"
@@ -97,44 +101,117 @@ do_help (NmCli *nmc, int argc, char **argv)
 }
 
 static void
-add_connection (DBusGProxy *proxy, const char *con_name)
+usage_add (void)
+{
+	fprintf (stderr,
+	         _("Usage: nmcli add <connection name|help> { COMMAND }\n"
+	         "  COMMAND := -param1 [value1] -param2 [value2] -param3 [value3] ... -param_n [value_n]\n"
+	         "  Available parameters: \n"
+	         " \t-APN\n"
+	         " \t-PIN\n"
+	         " \t-Username\n"
+	         " \t-Password\n"
+	         " \t-Radio\n"
+	         " \t Input example: nmcli add MyTestConnection -APN sample.apn -PIN my_pin\n\n"));
+}
+
+static int
+add_connection (DBusGProxy *proxy, const char *con_name, const char *apn)
 {
 	NMConnection *connection;
 	NMSettingConnection *s_con;
-	//NMSettingWired *s_wired;
-	//NMSettingIP4Config *s_ip4;
+	NMSettingIP4Config *s_ip4;
+	NMSettingGsm *s_gsm;
+	NMSettingPPP *s_ppp;
+	NMSettingSerial *s_serial;
+	
 	char *uuid, *new_con_path = NULL;
 	GHashTable *hash;
 	GError *error = NULL;
-	printf("%s jjajajajajaj\n", con_name);
-	/* Create a new connection object */
-	connection = (NMConnection *) nm_connection_new ();
+	
+	connection = (NMConnection *)nm_connection_new ();
+	if (connection == NULL){
+		printf("Unable to allocate new connection... Sorry.\n");
+		return NMC_RESULT_ERROR_CON_ADD;
+	}
 
-	/* Build up the 'connection' Setting */
 	s_con = (NMSettingConnection *) nm_setting_connection_new ();
+	if (s_con == NULL){
+		printf("Failed to allocate new %s setting... Sorry.\n",NM_SETTING_CONNECTION_SETTING_NAME);
+		return NMC_RESULT_ERROR_CON_ADD;
+	}
+	
+	nm_connection_add_setting (connection, NM_SETTING (s_con));
+
 	uuid = nm_utils_uuid_generate ();
-	g_object_set (G_OBJECT (s_con),
-	              NM_SETTING_CONNECTION_UUID, uuid,
+	
+	g_object_set (s_con,
 	              NM_SETTING_CONNECTION_ID, con_name,
+	              NM_SETTING_CONNECTION_UUID, uuid,
+	              NM_SETTING_CONNECTION_AUTOCONNECT, TRUE,
 	              NM_SETTING_CONNECTION_TYPE, NM_SETTING_GSM_SETTING_NAME,
 	              NULL);
 	g_free (uuid);
-	nm_connection_add_setting (connection, NM_SETTING (s_con));
 
+	/* GSM setting */
+	s_gsm = (NMSettingGsm *) nm_setting_gsm_new ();
 	
-	/*s_wired = (NMSettingWired *) nm_setting_wired_new ();
-	nm_connection_add_setting (connection, NM_SETTING (s_wired));
+	if (s_gsm == NULL){
+		printf("Failed to allocate new %s setting...Sorry.\n",NM_SETTING_GSM_SETTING_NAME);
+		return NMC_RESULT_ERROR_CON_ADD;
+	}
+	
+	nm_connection_add_setting (connection, NM_SETTING (s_gsm));
 
+	g_object_set (s_gsm, 
+	              NM_SETTING_GSM_NUMBER, "*99#",
+	              NM_SETTING_GSM_APN, apn, 
+	              NULL);
+
+	/* Serial setting */
+	s_serial = (NMSettingSerial *) nm_setting_serial_new ();
 	
+	if (s_serial == NULL){
+		printf("Failed to allocate new %s setting...Sorry.\n",NM_SETTING_SERIAL_SETTING_NAME);
+		return NMC_RESULT_ERROR_CON_ADD;
+	}
+	
+	nm_connection_add_setting (connection, NM_SETTING (s_serial));
+
+	g_object_set (s_serial,
+	              NM_SETTING_SERIAL_BAUD, 115200,
+	              NM_SETTING_SERIAL_BITS, 8,
+	              NM_SETTING_SERIAL_PARITY, 'n',
+	              NM_SETTING_SERIAL_STOPBITS, 1,
+	              NULL);
+
+	/* IP4 setting */
 	s_ip4 = (NMSettingIP4Config *) nm_setting_ip4_config_new ();
-	g_object_set (G_OBJECT (s_ip4),
+	
+	if (s_ip4 == NULL){
+		printf("Failed to allocate new %s setting... Sorry.\n",NM_SETTING_IP4_CONFIG_SETTING_NAME);
+		return NMC_RESULT_ERROR_CON_ADD;
+	}
+	
+	nm_connection_add_setting (connection, NM_SETTING (s_ip4));
+
+	g_object_set (s_ip4,
 	              NM_SETTING_IP4_CONFIG_METHOD, NM_SETTING_IP4_CONFIG_METHOD_AUTO,
 	              NULL);
-	nm_connection_add_setting (connection, NM_SETTING (s_ip4));*/
+
+	/* PPP setting */
+	s_ppp = (NMSettingPPP *) nm_setting_ppp_new ();
+	
+	if (s_ppp == NULL){
+		printf("Failed to allocate new %s setting... Sorry.\n", NM_SETTING_PPP_SETTING_NAME);
+		return NMC_RESULT_ERROR_CON_ADD;
+	}
+	
+	nm_connection_add_setting (connection, NM_SETTING (s_ppp));
 
 	hash = nm_connection_to_hash (connection, NM_SETTING_HASH_FLAG_ALL);
 
-	
+	/* Call AddConnection with the hash as argument */
 	if (!dbus_g_proxy_call (proxy, "AddConnection", &error,
 	                        DBUS_TYPE_G_MAP_OF_MAP_OF_VARIANT, hash,
 	                        G_TYPE_INVALID,
@@ -145,12 +222,14 @@ add_connection (DBusGProxy *proxy, const char *con_name)
 		         error->message);
 		g_clear_error (&error);
 	} else {
-		g_print ("Connection added: %s\n", new_con_path);
+		g_print ("Connection added successfully: %s\n", new_con_path);
 		g_free (new_con_path);
 	}
 
 	g_hash_table_destroy (hash);
 	g_object_unref (connection);
+	
+	return 0;
 }
 	
 
@@ -162,22 +241,29 @@ do_add (NmCli *nmc, int argc, char **argv)
 {
 	DBusGConnection *bus;
 	DBusGProxy *proxy;
+	
+	if ((*argv == NULL) || strcmp(argv[0],"help") == 0 || strcmp(argv[0],"-help") == 0){
+		usage_add();
+	}
+	else{
 
-	g_type_init ();
+		g_type_init ();
 
-	bus = dbus_g_bus_get (DBUS_BUS_SYSTEM, NULL);
+		bus = dbus_g_bus_get (DBUS_BUS_SYSTEM, NULL);
 
-	proxy = dbus_g_proxy_new_for_name (bus,
-	                                   NM_DBUS_SERVICE,
-	                                   NM_DBUS_PATH_SETTINGS,
-	                                   NM_DBUS_IFACE_SETTINGS);
+		proxy = dbus_g_proxy_new_for_name (bus,
+										   NM_DBUS_SERVICE,
+	                                       NM_DBUS_PATH_SETTINGS,
+	                                       NM_DBUS_IFACE_SETTINGS);
 	                                   
-	printf("%s | %s | %s \n", argv[0], argv[1], argv[2]);
+		//printf("%s | %s | %s | %s \n", argv[0], argv[1], argv[2], argv[3]);
 
-	add_connection (proxy, argv[0]);
+		if (add_connection (proxy, argv[0],"idemdoma") == -1)
+			return NMC_RESULT_ERROR_CON_ADD;
 
-	g_object_unref (proxy);
-	dbus_g_connection_unref (bus);
+		g_object_unref (proxy);
+		dbus_g_connection_unref (bus);
+	}
 
 	
 	return NMC_RESULT_SUCCESS;
