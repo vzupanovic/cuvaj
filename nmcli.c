@@ -54,6 +54,8 @@
 #define DBUS_TYPE_G_MAP_OF_VARIANT          (dbus_g_type_get_map ("GHashTable", G_TYPE_STRING, G_TYPE_VALUE))
 #define DBUS_TYPE_G_MAP_OF_MAP_OF_VARIANT   (dbus_g_type_get_map ("GHashTable", G_TYPE_STRING, DBUS_TYPE_G_MAP_OF_VARIANT))
 
+#define NOT_SET "not_set"
+
 #if defined(NM_DIST_VERSION)
 # define NMCLI_VERSION NM_DIST_VERSION
 #else
@@ -87,7 +89,7 @@ usage (const char *prog_name)
 	         "  -h[elp]                                    print this help\n\n"
 	         "OBJECT\n"
 	         "  nm                          NetworkManager status\n"
-	         "  add <connection_name>       add new connection via NetworkManager\n"
+	         "  add                         add new connection via NetworkManager\n"
 	         "  con                         NetworkManager connections\n"
 	         "  dev                         devices managed by NetworkManager\n\n"),
 	          prog_name);
@@ -104,19 +106,22 @@ static void
 usage_add (void)
 {
 	fprintf (stderr,
-	         _("Usage: nmcli add <connection name|help> { COMMAND }\n"
-	         "  COMMAND := -param1 [value1] -param2 [value2] -param3 [value3] ... -param_n [value_n]\n"
+	         _("Usage: nmcli add { help | COMMAND }\n"
+	         "  COMMAND := id <id> param1 <param1> param2 <value2> param3 <value3> ... param_n <value_n>\n"
 	         "  Available parameters: \n"
+	         " \t-id [has to be specified]\n"
 	         " \t-APN\n"
 	         " \t-PIN\n"
-	         " \t-Username\n"
-	         " \t-Password\n"
-	         " \t-Radio\n"
-	         " \t Input example: nmcli add MyTestConnection -APN sample.apn -PIN my_pin\n\n"));
+	         " \t-username\n"
+	         " \t-password\n"
+	         " \t-radio\n"
+	         " \t-uuid\n"
+	         " \t-radio\n"
+	         " \t-Input example: nmcli add id MyTestConnection APN sample.apn PIN my_pin\n\n"));
 }
 
 static int
-add_connection (DBusGProxy *proxy, const char *con_name, const char *apn)
+add_connection (DBusGProxy *proxy, char *con_name, char *apn, char *pin, char *username, char *password, char *radio, char *number)
 {
 	NMConnection *connection;
 	NMSettingConnection *s_con;
@@ -128,6 +133,10 @@ add_connection (DBusGProxy *proxy, const char *con_name, const char *apn)
 	char *uuid, *new_con_path = NULL;
 	GHashTable *hash;
 	GError *error = NULL;
+	
+	if (number == NULL) printf("JESAAAAAAM\n");
+	
+	printf("OVDJE SAM %s %s %s %s %s %s %s\n", con_name, apn, pin, username, password, radio, number);
 	
 	connection = (NMConnection *)nm_connection_new ();
 	if (connection == NULL){
@@ -145,6 +154,8 @@ add_connection (DBusGProxy *proxy, const char *con_name, const char *apn)
 
 	uuid = nm_utils_uuid_generate ();
 	
+	/*global settings*/
+	              
 	g_object_set (s_con,
 	              NM_SETTING_CONNECTION_ID, con_name,
 	              NM_SETTING_CONNECTION_UUID, uuid,
@@ -164,8 +175,11 @@ add_connection (DBusGProxy *proxy, const char *con_name, const char *apn)
 	nm_connection_add_setting (connection, NM_SETTING (s_gsm));
 
 	g_object_set (s_gsm, 
-	              NM_SETTING_GSM_NUMBER, "*99#",
-	              NM_SETTING_GSM_APN, apn, 
+	              NM_SETTING_GSM_NUMBER, (number == NULL) ? "*99#" : number,
+	              NM_SETTING_GSM_APN, apn,
+	              NM_SETTING_GSM_USERNAME, username,
+	              NM_SETTING_GSM_PASSWORD, password,
+	              NM_SETTING_GSM_PIN, pin, 
 	              NULL);
 
 	/* Serial setting */
@@ -241,11 +255,60 @@ do_add (NmCli *nmc, int argc, char **argv)
 {
 	DBusGConnection *bus;
 	DBusGProxy *proxy;
+	char *apn;
+	char *pin;
+	char *username;
+	char *password;
+	char *radio;
+	char *number; 
+	int i;
+	
+	apn = NULL;
+	pin = NULL;
+	username = NULL;
+	password = NULL;
+	radio = NULL;
+	number = NULL;
 	
 	if ((*argv == NULL) || strcmp(argv[0],"help") == 0 || strcmp(argv[0],"-help") == 0){
 		usage_add();
 	}
+		
 	else{
+		
+		if (matches(argv[0],"id") != 0){
+			g_string_printf (nmc->return_text, _("Error: id has to be specified."));
+			nmc->return_value = NMC_RESULT_ERROR_USER_INPUT;
+			return nmc->return_value;
+		}
+		else if (matches(argv[0],"id") == 0)
+			if(next_arg (&argc, &argv) != 0){
+			g_string_printf (nmc->return_text, _("Error: argument missing for parameter id."));	
+			nmc->return_value = NMC_RESULT_ERROR_USER_INPUT;
+			return nmc->return_value;
+			}
+		
+		
+		printf("%d ovoliko nas ima\n", argc);
+		
+		for (i=0; i<argc; i=i+2){
+			
+			(matches(argv[i], "APN") == 0) ? apn = argv[i + 1] : NOT_SET;
+				
+			(matches(argv[i], "PIN") == 0) ? pin = argv[i + 1] : NOT_SET;
+		
+			(matches(argv[i], "username") == 0) ? username = argv[i + 1] : NOT_SET;
+			
+			(matches(argv[i], "password") == 0) ? password = argv[i + 1] : NOT_SET;
+			
+			(matches(argv[i], "radio") == 0) ? radio = argv[i + 1] : NOT_SET;
+			
+			(matches(argv[i], "number") == 0) ? number = argv[i + 1] : NOT_SET;
+			
+		}
+		
+		printf ("%s %s %s %s\n", apn, pin, username, radio);
+			
 
 		g_type_init ();
 
@@ -258,8 +321,11 @@ do_add (NmCli *nmc, int argc, char **argv)
 	                                   
 		//printf("%s | %s | %s | %s \n", argv[0], argv[1], argv[2], argv[3]);
 
-		if (add_connection (proxy, argv[0],"idemdoma") == -1)
-			return NMC_RESULT_ERROR_CON_ADD;
+		if (add_connection (proxy, argv[1], apn, pin, username, password, radio, number) == 10){
+			g_string_printf (nmc->return_text, _("Error: id has to be specified."));
+			nmc->return_value = NMC_RESULT_ERROR_CON_ADD;
+			return nmc->return_value;
+		}
 
 		g_object_unref (proxy);
 		dbus_g_connection_unref (bus);
