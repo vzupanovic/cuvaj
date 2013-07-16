@@ -107,21 +107,37 @@ usage_add (void)
 {
 	fprintf (stderr,
 	         _("Usage: nmcli add { help | COMMAND }\n"
-	         "  COMMAND := id <id> param1 <param1> param2 <value2> param3 <value3> ... param_n <value_n>\n"
+	         "  COMMAND := id <id> param1 <param1> param2 <value2> ... param_n <value_n>\n"
 	         "  Available parameters: \n"
-	         " \t-id [has to be specified]\n"
-	         " \t-APN\n"
-	         " \t-PIN\n"
-	         " \t-username\n"
-	         " \t-password\n"
-	         " \t-radio\n"
-	         " \t-uuid\n"
-	         " \t-radio\n"
-	         " \t-Input example: nmcli add id MyTestConnection APN sample.apn PIN my_pin\n\n"));
+	         " \t<id>         [has to be specified]\n"
+	         " \t<auto>       [autoconnect] default: true (T/F)\n"
+	         " \t<APN>\n"
+	         " \t<PIN>\n"
+	         " \t<username>\n"
+	         " \t<password>\n"
+	         " \t<ntype>      [network type]\n"
+	         " \t             -1 : any | 0 : 3G only | 1: GPRS/EDGE only\n"
+	         " \t             2: prefer 3G | 3: prefer 2G\n"
+	         " \t             Note: not all devices allow network preference control!\n"
+	         " \t<uuid>\n"
+	         " \t<auth>       [autenthication]\n"
+	         " \t             Allowed methods: EAP (T/F) | PAP (T/F) | CHAP (T/F) |\n"
+	         " \t             MSCHAPv2 (T/F) | MSCHAP (T/F)\n"
+	         " \t<comp>       [compression]\n" 
+	         " \t             Allow BSD data compression (T/F)\n"
+	         " \t             Allow Deflate data compression (T/F)\n"
+	         " \t             Use TCP header compression (T/F)\n"
+	         " \t<echo>       Send PPP echo packets (T/F)\n"
+	         " \t<enc>        [Use point-to-point encryption MPPE]:\n"
+	         " \t             Require 128-bit encryption (T/F)\n"
+	         " \t             Use stateful MPPE (T/F)\n"
+	         " \t-Input example: nmcli add id MyTestConnection APN sample.apn PIN my_pin auth TTTTF\n\n"));
 }
 
 static int
-add_connection (DBusGProxy *proxy, char *con_name, char *apn, char *pin, char *username, char *password, char *radio, char *number)
+add_connection (DBusGProxy *proxy, char *con_name, char *apn, char *pin, 
+				char *username, char *password, int ntype, char *number,
+				char *auth, char *comp, char *aut)
 {
 	NMConnection *connection;
 	NMSettingConnection *s_con;
@@ -134,9 +150,10 @@ add_connection (DBusGProxy *proxy, char *con_name, char *apn, char *pin, char *u
 	GHashTable *hash;
 	GError *error = NULL;
 	
-	if (number == NULL) printf("JESAAAAAAM\n");
+	int autoconnect = 1;
 	
-	printf("OVDJE SAM %s %s %s %s %s %s %s\n", con_name, apn, pin, username, password, radio, number);
+	if ((aut != NULL) && (aut[0] != 'T'))
+		autoconnect = 0;
 	
 	connection = (NMConnection *)nm_connection_new ();
 	if (connection == NULL){
@@ -149,7 +166,7 @@ add_connection (DBusGProxy *proxy, char *con_name, char *apn, char *pin, char *u
 		printf("Failed to allocate new %s setting... Sorry.\n",NM_SETTING_CONNECTION_SETTING_NAME);
 		return NMC_RESULT_ERROR_CON_ADD;
 	}
-	
+	 
 	nm_connection_add_setting (connection, NM_SETTING (s_con));
 
 	uuid = nm_utils_uuid_generate ();
@@ -159,11 +176,11 @@ add_connection (DBusGProxy *proxy, char *con_name, char *apn, char *pin, char *u
 	g_object_set (s_con,
 	              NM_SETTING_CONNECTION_ID, con_name,
 	              NM_SETTING_CONNECTION_UUID, uuid,
-	              NM_SETTING_CONNECTION_AUTOCONNECT, TRUE,
+	              NM_SETTING_CONNECTION_AUTOCONNECT, (autoconnect == 0) ? TRUE : FALSE,
 	              NM_SETTING_CONNECTION_TYPE, NM_SETTING_GSM_SETTING_NAME,
 	              NULL);
 	g_free (uuid);
-
+    
 	/* GSM setting */
 	s_gsm = (NMSettingGsm *) nm_setting_gsm_new ();
 	
@@ -174,12 +191,21 @@ add_connection (DBusGProxy *proxy, char *con_name, char *apn, char *pin, char *u
 	
 	nm_connection_add_setting (connection, NM_SETTING (s_gsm));
 
+	/*Network type
+					    Network preference to force the device to only use 
+					    specific network technologies.  The permitted values
+					    are: -1: any, 0: 3G only, 1: GPRS/EDGE only, 
+					    2: prefer 3G, and 3: prefer 2G.  Note that not all 
+					    devices allow network preference control.,
+	*/ 
+					   
 	g_object_set (s_gsm, 
 	              NM_SETTING_GSM_NUMBER, (number == NULL) ? "*99#" : number,
 	              NM_SETTING_GSM_APN, apn,
 	              NM_SETTING_GSM_USERNAME, username,
 	              NM_SETTING_GSM_PASSWORD, password,
-	              NM_SETTING_GSM_PIN, pin, 
+	              NM_SETTING_GSM_PIN, pin,
+	              NM_SETTING_GSM_NETWORK_TYPE, ntype, 
 	              NULL);
 
 	/* Serial setting */
@@ -221,8 +247,24 @@ add_connection (DBusGProxy *proxy, char *con_name, char *apn, char *pin, char *u
 		return NMC_RESULT_ERROR_CON_ADD;
 	}
 	
+	
+	g_object_set(s_ppp,
+				NM_SETTING_PPP_REFUSE_EAP, (auth[0] == 'T') ? TRUE : FALSE,
+				NM_SETTING_PPP_REFUSE_PAP, (auth[1] == 'T') ? TRUE : FALSE,
+				NM_SETTING_PPP_REFUSE_CHAP, (auth[2] == 'T') ? TRUE : FALSE,
+				NM_SETTING_PPP_REFUSE_MSCHAP, (auth[3] == 'T') ? TRUE : FALSE,
+				NM_SETTING_PPP_REFUSE_MSCHAPV2, (auth[4] == 'T') ? TRUE : FALSE,
+				NM_SETTING_PPP_NOBSDCOMP, (comp[0] == 'T') ? TRUE : FALSE,
+				NM_SETTING_PPP_NODEFLATE, (comp[1] == 'T') ? TRUE : FALSE,
+				NM_SETTING_PPP_NO_VJ_COMP,(comp[2] == 'T') ? TRUE : FALSE, //tcp header compression
+				NM_SETTING_PPP_REQUIRE_MPPE, FALSE,
+				NM_SETTING_PPP_MPPE_STATEFUL, FALSE,
+				NM_SETTING_PPP_REQUIRE_MPPE_128, FALSE,
+				NULL);
+
 	nm_connection_add_setting (connection, NM_SETTING (s_ppp));
 
+	
 	hash = nm_connection_to_hash (connection, NM_SETTING_HASH_FLAG_ALL);
 
 	/* Call AddConnection with the hash as argument */
@@ -236,7 +278,8 @@ add_connection (DBusGProxy *proxy, char *con_name, char *apn, char *pin, char *u
 		         error->message);
 		g_clear_error (&error);
 	} else {
-		g_print ("Connection added successfully: %s\n", new_con_path);
+		g_print ("\n\tConnection added successfully at: %s \n\tUse: nmcli con list id %s to see connection detailed info \n\tor con delete id %s to delete connection.\n\n", 
+		         new_con_path, con_name, con_name);
 		g_free (new_con_path);
 	}
 
@@ -259,16 +302,24 @@ do_add (NmCli *nmc, int argc, char **argv)
 	char *pin;
 	char *username;
 	char *password;
-	char *radio;
 	char *number; 
+	char *ntype;
+	char *auth;
+	char *comp;
+	char *aut;
+	
 	int i;
 	
 	apn = NULL;
 	pin = NULL;
 	username = NULL;
 	password = NULL;
-	radio = NULL;
+	ntype = NULL;
 	number = NULL;
+	auth = NULL;
+	comp = NULL;
+	aut = NULL;
+	
 	
 	if ((*argv == NULL) || strcmp(argv[0],"help") == 0 || strcmp(argv[0],"-help") == 0){
 		usage_add();
@@ -281,35 +332,38 @@ do_add (NmCli *nmc, int argc, char **argv)
 			nmc->return_value = NMC_RESULT_ERROR_USER_INPUT;
 			return nmc->return_value;
 		}
-		else if (matches(argv[0],"id") == 0)
-			if(next_arg (&argc, &argv) != 0){
-			g_string_printf (nmc->return_text, _("Error: argument missing for parameter id."));	
-			nmc->return_value = NMC_RESULT_ERROR_USER_INPUT;
-			return nmc->return_value;
+		else if (matches(argv[0],"id") == 0){
+			if(argc == 1){
+				g_string_printf (nmc->return_text, _("Error: argument missing for parameter id."));	
+				nmc->return_value = NMC_RESULT_ERROR_USER_INPUT;
+				return nmc->return_value;
 			}
+			else if (argc % 2!=0){
+				g_string_printf (nmc->return_text, _("Error: Some arguments are missing."));
+				nmc->return_value = NMC_RESULT_ERROR_USER_INPUT;
+				return nmc->return_value;
+			}
+		}
 		
 		
 		printf("%d ovoliko nas ima\n", argc);
 		
 		for (i=0; i<argc; i=i+2){
 			
-			(matches(argv[i], "APN") == 0) ? apn = argv[i + 1] : NOT_SET;
-				
+			(matches(argv[i], "APN") == 0) ? apn = argv[i + 1] : NOT_SET;	
 			(matches(argv[i], "PIN") == 0) ? pin = argv[i + 1] : NOT_SET;
-		
 			(matches(argv[i], "username") == 0) ? username = argv[i + 1] : NOT_SET;
-			
 			(matches(argv[i], "password") == 0) ? password = argv[i + 1] : NOT_SET;
-			
-			(matches(argv[i], "radio") == 0) ? radio = argv[i + 1] : NOT_SET;
-			
+			(matches(argv[i], "ntype") == 0) ? ntype = argv[i + 1] : NOT_SET;
 			(matches(argv[i], "number") == 0) ? number = argv[i + 1] : NOT_SET;
+			(matches(argv[i], "auth") == 0) ? auth = argv[i + 1] : NOT_SET;
+			(matches(argv[i], "comp") == 0) ? comp = argv[i + 1] : NOT_SET;
+			(matches(argv[i], "aut") == 0) ? comp = argv[i + 1] : NOT_SET;
 			
 		}
 		
-		printf ("%s %s %s %s\n", apn, pin, username, radio);
+		printf ("%s %s %s %s\n", apn, pin, username, ntype);
 			
-
 		g_type_init ();
 
 		bus = dbus_g_bus_get (DBUS_BUS_SYSTEM, NULL);
@@ -321,7 +375,8 @@ do_add (NmCli *nmc, int argc, char **argv)
 	                                   
 		//printf("%s | %s | %s | %s \n", argv[0], argv[1], argv[2], argv[3]);
 
-		if (add_connection (proxy, argv[1], apn, pin, username, password, radio, number) == 10){
+		if (add_connection (proxy, argv[1], apn, pin, username, password, ((ntype == NULL) ? -1 : atoi(ntype)), 
+		                    number, ((auth == NULL) ? "FFFFF" : auth), ((comp == NULL) ? "FFF" : comp), aut) == 10){
 			g_string_printf (nmc->return_text, _("Error: id has to be specified."));
 			nmc->return_value = NMC_RESULT_ERROR_CON_ADD;
 			return nmc->return_value;
