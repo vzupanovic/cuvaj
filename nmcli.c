@@ -110,34 +110,52 @@ usage_add (void)
 	         "  COMMAND := id <id> param1 <param1> param2 <value2> ... param_n <value_n>\n"
 	         "  Available parameters: \n"
 	         " \t<id>         [has to be specified]\n"
-	         " \t<auto>       [autoconnect] default: true (T/F)\n"
-	         " \t<APN>\n"
-	         " \t<PIN>\n"
+	         " \t<auto>       [autoconnect] default: true (t/f)\n"
+	         " \t<apn>\n"
+	         " \t<pin>\n"
 	         " \t<username>\n"
 	         " \t<password>\n"
+	         " \t<netid>      [network id]\n"
+	         " \t             Force the device to register only on the specified network.\n"
 	         " \t<ntype>      [network type]\n"
 	         " \t             -1 : any | 0 : 3G only | 1: GPRS/EDGE only\n"
 	         " \t             2: prefer 3G | 3: prefer 2G\n"
 	         " \t             Note: not all devices allow network preference control!\n"
 	         " \t<uuid>\n"
 	         " \t<auth>       [autenthication]\n"
-	         " \t             Allowed methods: EAP (T/F) | PAP (T/F) | CHAP (T/F) |\n"
-	         " \t             MSCHAPv2 (T/F) | MSCHAP (T/F)\n"
+	         " \t             Allowed methods: EAP (t/f) | PAP (t/f) | CHAP (t/f) |\n"
+	         " \t             MSCHAPv2 (t/f) | MSCHAP (t/f)\n"
 	         " \t<comp>       [compression]\n" 
-	         " \t             Allow BSD data compression (T/F)\n"
-	         " \t             Allow Deflate data compression (T/F)\n"
-	         " \t             Use TCP header compression (T/F)\n"
-	         " \t<echo>       Send PPP echo packets (T/F)\n"
+	         " \t             Allow BSD data compression (t/f)\n"
+	         " \t             Allow Deflate data compression (t/f)\n"
+	         " \t             Use TCP header compression (t/f)\n"
+	         " \t<echofail>   If non-zero, instruct pppd to presume the connection to the\n"
+	         " \t             peer has failed if the specified number of LCP echo-requests\n"
+	         " \t             go unanswered by the peer. Must be set to non zero if used.\n"
+	         " \t             [zero - default]\n"
+	         " \t<echoint>    If non-zero, instruct pppd to send an LCP echo-request frame\n" 
+	         " \t             to the peer every n seconds (where n is the specified value).\n"
+	         " \t             [zero -default]\n"
 	         " \t<enc>        [Use point-to-point encryption MPPE]:\n"
-	         " \t             Require 128-bit encryption (T/F)\n"
-	         " \t             Use stateful MPPE (T/F)\n"
-	         " \t-Input example: nmcli add id MyTestConnection APN sample.apn PIN my_pin auth TTTTF\n\n"));
+	         " \t             Require 128-bit encryption (t/f)\n"
+	         " \t             Use stateful MPPE (t/f)\n"
+	         " \t<sbaud>      Serial baud: [default 57600] speed to use for communication over\n" 
+	         " \t             the serial port. Usually no effect.\n"
+	         " \t<sbits>      Byte-width of the serial communication. Allowed values [5-8]\n"
+	         " \t             [default 8]\n"
+	         " \t<sparity>    Parity setting of the serial port. Either 'E' for even parity,'o'\n" 
+	         " \t             for odd parity, or 'n' for no parity.\n "
+	         " \t<stbits>     Number of stop bits for communication on the serial port. Either\n"
+	         " \t             1 or 2. The 1 in '8n1' for example. Allowed values [1, 2]\n"
+	         " \t             [default 1]\n\n "));
 }
 
 static int
 add_connection (DBusGProxy *proxy, char *con_name, char *apn, char *pin, 
 				char *username, char *password, int ntype, char *number,
-				char *auth, char *comp, char *aut)
+				char *auth, char *comp, char *aut, char *netid, char *enc,
+				int ecoint, int ecofail, char *uuid, int sbits, char sparity,
+				int stbits, int sbaud)
 {
 	NMConnection *connection;
 	NMSettingConnection *s_con;
@@ -146,13 +164,15 @@ add_connection (DBusGProxy *proxy, char *con_name, char *apn, char *pin,
 	NMSettingPPP *s_ppp;
 	NMSettingSerial *s_serial;
 	
-	char *uuid, *new_con_path = NULL;
+	char *new_con_path = NULL;
 	GHashTable *hash;
 	GError *error = NULL;
 	
 	int autoconnect = 1;
+	int uuid_generated = 0;
 	
-	if ((aut != NULL) && (aut[0] != 'T'))
+	
+	if ((aut != NULL) && (aut[0] != 't'))
 		autoconnect = 0;
 	
 	connection = (NMConnection *)nm_connection_new ();
@@ -168,18 +188,25 @@ add_connection (DBusGProxy *proxy, char *con_name, char *apn, char *pin,
 	}
 	 
 	nm_connection_add_setting (connection, NM_SETTING (s_con));
-
-	uuid = nm_utils_uuid_generate ();
+	
+	
+	if (uuid == NULL){
+		uuid = nm_utils_uuid_generate ();
+		uuid_generated = 1;
+	}
+		
 	
 	/*global settings*/
 	              
 	g_object_set (s_con,
 	              NM_SETTING_CONNECTION_ID, con_name,
 	              NM_SETTING_CONNECTION_UUID, uuid,
-	              NM_SETTING_CONNECTION_AUTOCONNECT, (autoconnect == 0) ? TRUE : FALSE,
+	              NM_SETTING_CONNECTION_AUTOCONNECT, (autoconnect == 1) ? TRUE : FALSE,
 	              NM_SETTING_CONNECTION_TYPE, NM_SETTING_GSM_SETTING_NAME,
 	              NULL);
-	g_free (uuid);
+	              
+	if(uuid_generated == 1)
+		g_free (uuid);
     
 	/* GSM setting */
 	s_gsm = (NMSettingGsm *) nm_setting_gsm_new ();
@@ -206,6 +233,7 @@ add_connection (DBusGProxy *proxy, char *con_name, char *apn, char *pin,
 	              NM_SETTING_GSM_PASSWORD, password,
 	              NM_SETTING_GSM_PIN, pin,
 	              NM_SETTING_GSM_NETWORK_TYPE, ntype, 
+	              NM_SETTING_GSM_NETWORK_ID, netid,
 	              NULL);
 
 	/* Serial setting */
@@ -219,10 +247,10 @@ add_connection (DBusGProxy *proxy, char *con_name, char *apn, char *pin,
 	nm_connection_add_setting (connection, NM_SETTING (s_serial));
 
 	g_object_set (s_serial,
-	              NM_SETTING_SERIAL_BAUD, 115200,
-	              NM_SETTING_SERIAL_BITS, 8,
-	              NM_SETTING_SERIAL_PARITY, 'n',
-	              NM_SETTING_SERIAL_STOPBITS, 1,
+	              NM_SETTING_SERIAL_BAUD, sbaud,
+	              NM_SETTING_SERIAL_BITS, sbits,
+	              NM_SETTING_SERIAL_PARITY, sparity,
+	              NM_SETTING_SERIAL_STOPBITS, stbits,
 	              NULL);
 
 	/* IP4 setting */
@@ -249,17 +277,19 @@ add_connection (DBusGProxy *proxy, char *con_name, char *apn, char *pin,
 	
 	
 	g_object_set(s_ppp,
-				NM_SETTING_PPP_REFUSE_EAP, (auth[0] == 'T') ? TRUE : FALSE,
-				NM_SETTING_PPP_REFUSE_PAP, (auth[1] == 'T') ? TRUE : FALSE,
-				NM_SETTING_PPP_REFUSE_CHAP, (auth[2] == 'T') ? TRUE : FALSE,
-				NM_SETTING_PPP_REFUSE_MSCHAP, (auth[3] == 'T') ? TRUE : FALSE,
-				NM_SETTING_PPP_REFUSE_MSCHAPV2, (auth[4] == 'T') ? TRUE : FALSE,
-				NM_SETTING_PPP_NOBSDCOMP, (comp[0] == 'T') ? TRUE : FALSE,
-				NM_SETTING_PPP_NODEFLATE, (comp[1] == 'T') ? TRUE : FALSE,
-				NM_SETTING_PPP_NO_VJ_COMP,(comp[2] == 'T') ? TRUE : FALSE, //tcp header compression
-				NM_SETTING_PPP_REQUIRE_MPPE, FALSE,
-				NM_SETTING_PPP_MPPE_STATEFUL, FALSE,
-				NM_SETTING_PPP_REQUIRE_MPPE_128, FALSE,
+				NM_SETTING_PPP_REFUSE_EAP, (auth[0] == 't') ? TRUE : FALSE,
+				NM_SETTING_PPP_REFUSE_PAP, (auth[1] == 't') ? TRUE : FALSE,
+				NM_SETTING_PPP_REFUSE_CHAP, (auth[2] == 't') ? TRUE : FALSE,
+				NM_SETTING_PPP_REFUSE_MSCHAP, (auth[3] == 't') ? TRUE : FALSE,
+				NM_SETTING_PPP_REFUSE_MSCHAPV2, (auth[4] == 't') ? TRUE : FALSE,
+				NM_SETTING_PPP_NOBSDCOMP, (comp[0] == 't') ? FALSE : TRUE,
+				NM_SETTING_PPP_NODEFLATE, (comp[1] == 't') ? FALSE : TRUE,
+				NM_SETTING_PPP_NO_VJ_COMP,(comp[2] == 't') ? FALSE : TRUE, //tcp header compression
+				NM_SETTING_PPP_REQUIRE_MPPE, (strcmp(enc, "ff")==0) ? FALSE :TRUE,
+				NM_SETTING_PPP_MPPE_STATEFUL, (enc[1] == 't') ? TRUE : FALSE,
+				NM_SETTING_PPP_REQUIRE_MPPE_128, (enc[0] == 't') ? TRUE : FALSE,
+				NM_SETTING_PPP_LCP_ECHO_FAILURE, (ecofail > 0) ? ecofail : 0,
+				NM_SETTING_PPP_LCP_ECHO_INTERVAL, (ecoint > 0) ? ecoint: 0,
 				NULL);
 
 	nm_connection_add_setting (connection, NM_SETTING (s_ppp));
@@ -273,13 +303,14 @@ add_connection (DBusGProxy *proxy, char *con_name, char *apn, char *pin,
 	                        G_TYPE_INVALID,
 	                        DBUS_TYPE_G_OBJECT_PATH, &new_con_path,
 	                        G_TYPE_INVALID)) {
-		g_print ("Error adding connection: %s %s",
+		g_print ("Error adding connection: %s %s\n",
 		         dbus_g_error_get_name (error),
 		         error->message);
 		g_clear_error (&error);
 	} else {
-		g_print ("\n\tConnection added successfully at: %s \n\tUse: nmcli con list id %s to see connection detailed info \n\tor con delete id %s to delete connection.\n\n", 
+		g_print ("\n\tConnection added successfully at: %s \n\tUse: nmcli con list id %s to see connection detailed info \n\tor con delete id %s to delete connection.\n", 
 		         new_con_path, con_name, con_name);
+		g_print ("\tTo bring connection up use: nmcli con up id %s.\n\n",con_name);
 		g_free (new_con_path);
 	}
 
@@ -298,28 +329,27 @@ do_add (NmCli *nmc, int argc, char **argv)
 {
 	DBusGConnection *bus;
 	DBusGProxy *proxy;
-	char *apn;
-	char *pin;
-	char *username;
-	char *password;
-	char *number; 
-	char *ntype;
-	char *auth;
-	char *comp;
-	char *aut;
 	
 	int i;
 	
-	apn = NULL;
-	pin = NULL;
-	username = NULL;
-	password = NULL;
-	ntype = NULL;
-	number = NULL;
-	auth = NULL;
-	comp = NULL;
-	aut = NULL;
-	
+	char *apn = NULL;
+	char *pin = NULL;
+	char *username = NULL;
+	char *password = NULL;
+	char *number = NULL; 
+	char *ntype = NULL;
+	char *auth = NULL;
+	char *comp = NULL;
+	char *aut = NULL;
+	char *netid = NULL;
+	char *enc = NULL;
+	char *echofail = NULL;
+	char *echoint = NULL;
+	char *uuid = NULL;
+	char *sbits = NULL;
+	char *stbits = NULL;
+	char *sparity = NULL;
+	char *sbaud = NULL;
 	
 	if ((*argv == NULL) || strcmp(argv[0],"help") == 0 || strcmp(argv[0],"-help") == 0){
 		usage_add();
@@ -346,23 +376,29 @@ do_add (NmCli *nmc, int argc, char **argv)
 		}
 		
 		
-		printf("%d ovoliko nas ima\n", argc);
-		
 		for (i=0; i<argc; i=i+2){
 			
-			(matches(argv[i], "APN") == 0) ? apn = argv[i + 1] : NOT_SET;	
-			(matches(argv[i], "PIN") == 0) ? pin = argv[i + 1] : NOT_SET;
+			(matches(argv[i], "apn") == 0) ? apn = argv[i + 1] : NOT_SET;	
+			(matches(argv[i], "pin") == 0) ? pin = argv[i + 1] : NOT_SET;
 			(matches(argv[i], "username") == 0) ? username = argv[i + 1] : NOT_SET;
 			(matches(argv[i], "password") == 0) ? password = argv[i + 1] : NOT_SET;
 			(matches(argv[i], "ntype") == 0) ? ntype = argv[i + 1] : NOT_SET;
 			(matches(argv[i], "number") == 0) ? number = argv[i + 1] : NOT_SET;
 			(matches(argv[i], "auth") == 0) ? auth = argv[i + 1] : NOT_SET;
 			(matches(argv[i], "comp") == 0) ? comp = argv[i + 1] : NOT_SET;
-			(matches(argv[i], "aut") == 0) ? comp = argv[i + 1] : NOT_SET;
+			(matches(argv[i], "auto") == 0) ? aut = argv[i + 1] : NOT_SET;
+			(matches(argv[i], "netid") == 0) ? netid = argv[i + 1] : NOT_SET;
+			(matches(argv[i], "enc") == 0) ? enc = argv[i + 1] : NOT_SET;
+			(matches(argv[i], "echoint") == 0) ? echoint = argv[i + 1] : NOT_SET;
+			(matches(argv[i], "echofail") == 0) ? echofail = argv[i + 1] : NOT_SET; 
+			(matches(argv[i], "uuid") == 0) ? uuid = argv[i + 1] : NOT_SET;
+			(matches(argv[i], "sbits") == 0) ? sbits = argv[i + 1] : NOT_SET;
+			(matches(argv[i], "sparity") == 0) ? sparity = argv[i + 1] : NOT_SET;
+			(matches(argv[i], "stbits") == 0) ? stbits = argv[i + 1] : NOT_SET;
+			(matches(argv[i], "sbaud") == 0) ? sbaud = argv[i + 1] : NOT_SET;
 			
 		}
 		
-		printf ("%s %s %s %s\n", apn, pin, username, ntype);
 			
 		g_type_init ();
 
@@ -373,10 +409,13 @@ do_add (NmCli *nmc, int argc, char **argv)
 	                                       NM_DBUS_PATH_SETTINGS,
 	                                       NM_DBUS_IFACE_SETTINGS);
 	                                   
-		//printf("%s | %s | %s | %s \n", argv[0], argv[1], argv[2], argv[3]);
 
 		if (add_connection (proxy, argv[1], apn, pin, username, password, ((ntype == NULL) ? -1 : atoi(ntype)), 
-		                    number, ((auth == NULL) ? "FFFFF" : auth), ((comp == NULL) ? "FFF" : comp), aut) == 10){
+		                    number, ((auth == NULL) ? "fffff" : auth), ((comp == NULL) ? "fff" : comp), aut,
+		                    netid, ((enc == NULL) ? "ff" : enc), ((echoint == NULL) ? 0 : atoi(echoint)),
+		                    ((echofail == NULL) ? 0 : atoi(echofail)), uuid, ((sbits == NULL) ? 8 : atoi(sbits)), 
+		                    ((sparity!=NULL) ? sparity[0] : 110), ((stbits == NULL) ? 1 : atoi(stbits)),
+		                    ((sbaud == NULL) ? 57600 : atoi(sbaud))) == 10){
 			g_string_printf (nmc->return_text, _("Error: id has to be specified."));
 			nmc->return_value = NMC_RESULT_ERROR_CON_ADD;
 			return nmc->return_value;
