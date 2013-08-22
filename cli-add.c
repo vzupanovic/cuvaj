@@ -5,7 +5,6 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <locale.h>
-#include <stdarg.h>
 
 #include <glib.h>
 #include <dbus/dbus-glib.h>
@@ -67,7 +66,7 @@ usage_add (void)
 	         " \t             [zero - default]\n"
 	         " \t<echoint>    If non-zero, instruct pppd to send an LCP echo-request frame\n" 
 	         " \t             to the peer every n seconds (where n is the specified value).\n"
-	         " \t             [zero -default]\n"
+	         " \t             [zero - default]\n"
 	         " \t<enc>        [Use point-to-point encryption MPPE]:\n"
 	         " \t             Require 128-bit encryption (t/f)\n"
 	         " \t             Use stateful MPPE (t/f)\n"
@@ -209,15 +208,15 @@ add_connection (DBusGProxy *proxy, char *con_name, char *apn, char *pin,
 	
 	
 	g_object_set(s_ppp,
-				NM_SETTING_PPP_REFUSE_EAP, (auth[0] == 't') ? TRUE : FALSE,
-				NM_SETTING_PPP_REFUSE_PAP, (auth[1] == 't') ? TRUE : FALSE,
-				NM_SETTING_PPP_REFUSE_CHAP, (auth[2] == 't') ? TRUE : FALSE,
-				NM_SETTING_PPP_REFUSE_MSCHAP, (auth[3] == 't') ? TRUE : FALSE,
-				NM_SETTING_PPP_REFUSE_MSCHAPV2, (auth[4] == 't') ? TRUE : FALSE,
+				NM_SETTING_PPP_REFUSE_EAP, (auth[0] == 't') ? FALSE : TRUE,
+				NM_SETTING_PPP_REFUSE_PAP, (auth[1] == 't') ? FALSE : TRUE,
+				NM_SETTING_PPP_REFUSE_CHAP, (auth[2] == 't') ? FALSE : TRUE,
+				NM_SETTING_PPP_REFUSE_MSCHAP, (auth[3] == 't') ? FALSE : TRUE,
+				NM_SETTING_PPP_REFUSE_MSCHAPV2, (auth[4] == 't') ? FALSE : TRUE,
 				NM_SETTING_PPP_NOBSDCOMP, (comp[0] == 't') ? FALSE : TRUE,
 				NM_SETTING_PPP_NODEFLATE, (comp[1] == 't') ? FALSE : TRUE,
 				NM_SETTING_PPP_NO_VJ_COMP,(comp[2] == 't') ? FALSE : TRUE, //tcp header compression
-				NM_SETTING_PPP_REQUIRE_MPPE, (strcmp(enc, "ff")==0) ? FALSE :TRUE,
+				NM_SETTING_PPP_REQUIRE_MPPE, (strcmp(enc, "ff")==0) ? FALSE : TRUE,
 				NM_SETTING_PPP_MPPE_STATEFUL, (enc[1] == 't') ? TRUE : FALSE,
 				NM_SETTING_PPP_REQUIRE_MPPE_128, (enc[0] == 't') ? TRUE : FALSE,
 				NM_SETTING_PPP_LCP_ECHO_FAILURE, (ecofail > 0) ? ecofail : 0,
@@ -225,7 +224,6 @@ add_connection (DBusGProxy *proxy, char *con_name, char *apn, char *pin,
 				NULL);
 
 	nm_connection_add_setting (connection, NM_SETTING (s_ppp));
-
 	
 	hash = nm_connection_to_hash (connection, NM_SETTING_HASH_FLAG_ALL);
 
@@ -240,9 +238,10 @@ add_connection (DBusGProxy *proxy, char *con_name, char *apn, char *pin,
 		         error->message);
 		g_clear_error (&error);
 	} else {
-		g_print ("\n\tConnection added successfully at: %s \n\tUse: nmcli con list id %s to see connection detailed info \n\tor con delete id %s to delete connection.\n", 
+		g_print ("\n\tConnection added successfully at: %s \n\tUse: nmcli con list id %s - to see connection detailed info \n\tcon delete id %s - to delete connection\n", 
 		         new_con_path, con_name, con_name);
-		g_print ("\tTo bring connection up use: nmcli con up id %s.\n\n",con_name);
+		g_print ("\tTo bring connection up use: nmcli con up id %s.\n",con_name);
+		g_print ("\tTo see connection status use: nmcli con status id %s.\n\n",con_name);
 		g_free (new_con_path);
 	}
 
@@ -253,14 +252,13 @@ add_connection (DBusGProxy *proxy, char *con_name, char *apn, char *pin,
 }
 	
 
-/*ovo mijenjaj za sad ne ono iznad!*/
-
-
 NMCResultCode
 do_add (NmCli *nmc, int argc, char **argv)
 {
 	DBusGConnection *bus;
 	DBusGProxy *proxy;
+
+	GError *err = NULL;
 	
 	int i;
 	
@@ -288,7 +286,19 @@ do_add (NmCli *nmc, int argc, char **argv)
 	}
 		
 	else{
-		
+		if (!nmc_is_nm_running (nmc, &err)) {
+			if (err) {
+				g_string_printf (nmc->return_text, _("Error: Can't find out if NetworkManager is running: %s."), err->message);
+				nmc->return_value = NMC_RESULT_ERROR_UNKNOWN;
+				g_error_free (err);
+				return nmc->return_value;
+			} else {
+				g_string_printf (nmc->return_text, _("Error: NetworkManager is not running."));
+				nmc->return_value = NMC_RESULT_ERROR_NM_NOT_RUNNING;
+				return nmc->return_value;
+			}
+		}
+
 		if (matches(argv[0],"id") != 0){
 			g_string_printf (nmc->return_text, _("Error: id has to be specified."));
 			nmc->return_value = NMC_RESULT_ERROR_USER_INPUT;
@@ -337,7 +347,7 @@ do_add (NmCli *nmc, int argc, char **argv)
 		bus = dbus_g_bus_get (DBUS_BUS_SYSTEM, NULL);
 
 		proxy = dbus_g_proxy_new_for_name (bus,
-										   NM_DBUS_SERVICE,
+					       NM_DBUS_SERVICE,
 	                                       NM_DBUS_PATH_SETTINGS,
 	                                       NM_DBUS_IFACE_SETTINGS);
 	                                   
@@ -347,9 +357,11 @@ do_add (NmCli *nmc, int argc, char **argv)
 		                    netid, ((enc == NULL) ? "ff" : enc), ((echoint == NULL) ? 0 : atoi(echoint)),
 		                    ((echofail == NULL) ? 0 : atoi(echofail)), uuid, ((sbits == NULL) ? 8 : atoi(sbits)), 
 		                    ((sparity!=NULL) ? sparity[0] : 110), ((stbits == NULL) ? 1 : atoi(stbits)),
-		                    ((sbaud == NULL) ? 57600 : atoi(sbaud))) == 10){
-			g_string_printf (nmc->return_text, _("Error: id has to be specified."));
+		                    ((sbaud == NULL) ? 57600 : atoi(sbaud))) != 0){
+			fprintf (stderr,"Error: unable to add new connection.");
 			nmc->return_value = NMC_RESULT_ERROR_CON_ADD;
+			g_object_unref (proxy);
+			dbus_g_connection_unref (bus);
 			return nmc->return_value;
 		}
 
@@ -357,7 +369,7 @@ do_add (NmCli *nmc, int argc, char **argv)
 		dbus_g_connection_unref (bus);
 	}
 
-	
-	return NMC_RESULT_SUCCESS;
+	nmc->return_value = NMC_RESULT_SUCCESS;
+	return nmc->return_value;
 }
 
