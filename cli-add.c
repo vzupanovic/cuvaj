@@ -50,7 +50,8 @@ usage_add (void)
 	         " \t             Force the device to register only on the specified network.\n"
 	         " \t<ntype>      [network type]\n"
 	         " \t             -1 : any | 0 : 3G only | 1: GPRS/EDGE only\n"
-	         " \t             2: prefer 3G | 3: prefer 2G\n"
+	         " \t             2: prefer 3G | 3: prefer 2G | 4: prefer 4G (LTE) \n"
+		 " \t             5: 4G (LTE) only\n"
 	         " \t             Note: not all devices allow network preference control!\n"
 	         " \t<uuid>\n"
 	         " \t<auth>       [autenthication]\n"
@@ -153,7 +154,8 @@ add_connection (DBusGProxy *proxy, char *con_name, char *apn, char *pin,
 					    Network preference to force the device to only use 
 					    specific network technologies.  The permitted values
 					    are: -1: any, 0: 3G only, 1: GPRS/EDGE only, 
-					    2: prefer 3G, and 3: prefer 2G.  Note that not all 
+					    2: prefer 3G, and 3: prefer 2G, 4: prefer 4G (LTE),
+                                            5: 4G (LTE) only. Note that not all 
 					    devices allow network preference control.
 	*/ 
 					   
@@ -237,6 +239,9 @@ add_connection (DBusGProxy *proxy, char *con_name, char *apn, char *pin,
 		         dbus_g_error_get_name (error),
 		         error->message);
 		g_clear_error (&error);
+		g_hash_table_destroy (hash);
+		g_object_unref (connection);
+		return NMC_RESULT_ERROR_CON_ADD;
 	} else {
 		g_print ("\n\tConnection added successfully at: %s \n\tUse: nmcli con list id %s - to see connection detailed info \n\tcon delete id %s - to delete connection\n", 
 		         new_con_path, con_name, con_name);
